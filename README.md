@@ -45,30 +45,6 @@ Turn your phone into a mini IMU lab. Visualize orientation in 3D, count steps, a
 
 ## 🛠️ Tech
 
-* **Three.js** (rendering)
-* **Tailwind CSS** (styling)
-* Vanilla JS (no build tool, no deps)
-
-## 🌐 Deploy to GitHub Pages
-
-1. Create a new repo (e.g., `pocket-imu-lab`).
-2. Add `index.html` and this `README.md`.
-3. Add `pocket-imu-thumbnail.png` (provided in this repo) for a nice preview.
-4. Commit & push.
-5. Repo → **Settings** → **Pages** → *Deploy from branch* → `main` → `/ (root)`.
-6. Open the Pages URL on your phone.
-
-## 🎯 Ideas for Extensions
-
-* Motion trail for orientation (quaternion or Euler over time)
-* Low‑pass/Biquad filtering + step detector improvements
-* CSV **import & charting** inside the app
-* Map phone orientation to a simple robot arm or camera rig in the scene
-
-## 🤝 Contributing
-
-PRs and issues welcome! Please keep the project dependency‑free.
-
-## 📄 License
-
-MIT — do whatever you want, attribution appreciated.
+* Three.js
+* Tailwind CSS
+* Vanilla JS 
