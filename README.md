@@ -1,5 +1,5 @@
 # Pocket IMU Lab
-
+https://jack-abrams.github.io/imu-lab/
 Turn your phone into a mini IMU lab. Visualize orientation in 3D, count steps, and export motion data as CSV — all in a single HTML file you can host on GitHub Pages.
 
 ![Pocket IMU Lab Thumbnail](./pocket-imu-thumbnail.png)
