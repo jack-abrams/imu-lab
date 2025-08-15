@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pocket IMU Lab — Motion & Orientation Visualizer</title>
+  <meta name="description" content="Use your phone's sensors to visualize orientation in 3D, count steps, and export IMU data — all local-first, no backend." />
+  <link rel="icon" href="data:," />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+  <style>
+    html, body { height: 100%; }
+    .glass { backdrop-filter: blur(10px); background: rgba(255,255,255,0.7); }
+    .dark .glass { background: rgba(17,24,39,0.6); }
+  </style>
+</head>
+<body class="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-950 text-slate-900 dark:text-slate-100">
+  <div class="max-w-5xl mx-auto p-4 md:p-8">
+    <header class="flex items-center justify-between gap-3 mb-6">
+      <h1 class="text-2xl md:text-3xl font-bold">📱 Pocket IMU Lab</h1>
+      <button id="themeToggle" class="px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-sm">Toggle Theme</button>
+    </header>
+
+    <section class="grid md:grid-cols-2 gap-6 items-start">
+      <div class="glass rounded-2xl p-4 md:p-6 shadow-lg border border-slate-200/70 dark:border-slate-800/60">
+        <h2 class="font-semibold mb-3">Orientation Viewer</h2>
+        <div id="viewer" class="w-full aspect-[4/3] rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-200/60 dark:bg-slate-800/60"></div>
+        <div class="mt-4 flex flex-wrap gap-2 text-sm">
+          <button id="btnPermission" class="px-3 py-2 rounded-xl bg-slate-900 text-white dark:bg-white dark:text-slate-900">Enable Sensors</button>
+          <button id="btnCalibrate" class="px-3 py-2 rounded-xl border">Calibrate Zero</button>
+          <button id="btnReset" class="px-3 py-2 rounded-xl border">Reset</button>
+        </div>
+        <p class="mt-3 text-xs text-slate-600 dark:text-slate-400">Tip: On iOS, you must tap <em>Enable Sensors</em> to grant motion/orientation access.</p>
+      </div>
+
+      <div class="glass rounded-2xl p-4 md:p-6 shadow-lg border border-slate-200/70 dark:border-slate-800/60">
+        <h2 class="font-semibold mb-3">Live Telemetry</h2>
+        <div class="grid grid-cols-2 gap-3 text-sm">
+          <div class="p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+            <div class="text-xs uppercase tracking-wide text-slate-500">Orientation (°)</div>
+            <div class="mt-1">α: <span id="alpha">0</span></div>
+            <div>β: <span id="beta">0</span></div>
+            <div>γ: <span id="gamma">0</span></div>
+          </div>
+          <div class="p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+            <div class="text-xs uppercase tracking-wide text-slate-500">Acceleration (m/s²)</div>
+            <div class="mt-1">x: <span id="ax">0</span></div>
+            <div>y: <span id="ay">0</span></div>
+            <div>z: <span id="az">0</span></div>
+          </div>
+          <div class="p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+            <div class="text-xs uppercase tracking-wide text-slate-500">Steps</div>
+            <div class="mt-1 text-2xl font-bold"><span id="steps">0</span></div>
+            <div class="text-xs text-slate-500 mt-1">Simple peak detector on accel magnitude</div>
+          </div>
+          <div class="p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+            <div class="text-xs uppercase tracking-wide text-slate-500">Logging</div>
+            <div class="mt-1">Status: <span id="logStatus">idle</span></div>
+            <div class="mt-1 flex gap-2">
+              <button id="btnStartLog" class="px-3 py-2 rounded-xl border">Start</button>
+              <button id="btnStopLog" class="px-3 py-2 rounded-xl border">Stop</button>
+              <button id="btnExport" class="px-3 py-2 rounded-xl border">Export CSV</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <footer class="text-xs text-slate-500 mt-6">Built with ❤️ — local-first, privacy-first. MIT License.</footer>
+  </div>
+
+  <script>
+    const themeBtn = document.getElementById('themeToggle');
+    const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    if ((localStorage.getItem('theme') ?? (prefersDark ? 'dark' : 'light')) === 'dark') document.documentElement.classList.add('dark');
+    themeBtn.addEventListener('click', () => {
+      document.documentElement.classList.toggle('dark');
+      localStorage.setItem('theme', document.documentElement.classList.contains('dark') ? 'dark' : 'light');
+    });
+
+    const container = document.getElementById('viewer');
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(50, 4/3, 0.1, 100);
+    camera.position.set(0, 0, 4);
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setSize(container.clientWidth, container.clientHeight);
+    container.appendChild(renderer.domElement);
+
+    const light = new THREE.DirectionalLight(0xffffff, 1); light.position.set(3,3,5); scene.add(light);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+
+    const cubeGeom = new THREE.BoxGeometry(1.5, 0.9, 0.05);
+    const cubeMat = new THREE.MeshStandardMaterial({ color: 0x5b9cf0, metalness: 0.2, roughness: 0.4 });
+    const phone = new THREE.Mesh(cubeGeom, cubeMat);
+    scene.add(phone);
+
+    const grid = new THREE.GridHelper(10, 10); grid.position.y = -1.2; scene.add(grid);
+
+    const $ = id => document.getElementById(id);
+    const ui = { alpha: $('alpha'), beta: $('beta'), gamma: $('gamma'), ax: $('ax'), ay: $('ay'), az: $('az'), steps: $('steps'), logStatus: $('logStatus') };
+
+    let orientation = { alpha: 0, beta: 0, gamma: 0 };
+    let accel = { x: 0, y: 0, z: 0 };
+    let calib = { alpha: 0, beta: 0, gamma: 0 };
+    let logging = false; let logData = []; let logTimer = null; const LOG_HZ = 50;
+    let steps = 0; let lastMag = 0; let rising = false; const THRESH = 1.3;
+    const GRAV = 9.80665;
+
+    async function requestPermission(){
+      try {
+        if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+          const r1 = await DeviceMotionEvent.requestPermission();
+          const r2 = (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function')
+            ? await DeviceOrientationEvent.requestPermission() : 'granted';
+          if (r1 !== 'granted' || r2 !== 'granted') throw new Error('Permission denied');
+        }
+        startSensors();
+      } catch (e) {
+        alert('Permission not granted. Try Safari/Chrome on a real device.');
+      }
+    }
+
+    function startSensors(){
+      window.addEventListener('deviceorientation', (e) => {
+        orientation.alpha = e.alpha ?? orientation.alpha;
+        orientation.beta = e.beta ?? orientation.beta;
+        orientation.gamma = e.gamma ?? orientation.gamma;
+      });
+
+      window.addEventListener('devicemotion', (e) => {
+        const a = e.accelerationIncludingGravity || e.acceleration || {x:0,y:0,z:0};
+        accel.x = a.x ?? 0; accel.y = a.y ?? 0; accel.z = a.z ?? 0;
+        const mag = Math.sqrt(accel.x*accel.x + accel.y*accel.y + accel.z*accel.z);
+        const magNorm = Math.abs(mag - GRAV);
+        if (!rising && magNorm > THRESH && magNorm > lastMag) rising = true;
+        if (rising && magNorm < lastMag) { steps++; ui.steps.textContent = steps; rising = false; }
+        lastMag = magNorm;
+      });
+    }
+
+    function calibrate(){ calib = { ...orientation }; }
+    function resetAll(){ calib = { alpha:0, beta:0, gamma:0 }; steps = 0; ui.steps.textContent = '0'; logData = []; }
+    function toRad(d){ return d * Math.PI / 180; }
+
+    function applyOrientationToObject(obj){
+      const a = toRad((orientation.alpha - calib.alpha));
+      const b = toRad((orientation.beta - calib.beta));
+      const g = toRad((orientation.gamma - calib.gamma));
+      obj.rotation.set(0,0,0);
+      obj.rotateZ(a);
+      obj.rotateX(b);
+      obj.rotateY(g);
+    }
+
+    function updateUI(){
+      ui.alpha.textContent = orientation.alpha.toFixed(1);
+      ui.beta.textContent = orientation.beta.toFixed(1);
+      ui.gamma.textContent = orientation.gamma.toFixed(1);
+      ui.ax.textContent = accel.x.toFixed(2);
+      ui.ay.textContent = accel.y.toFixed(2);
+      ui.az.textContent = accel.z.toFixed(2);
+    }
+
+    function startLogging(){
+      if (logging) return; logging = true; ui.logStatus.textContent = 'recording';
+      logData = []; const start = performance.now();
+      logTimer = setInterval(() => {
+        const t = (performance.now() - start) / 1000;
+        logData.push({t, alpha: orientation.alpha, beta: orientation.beta, gamma: orientation.gamma, ax: accel.x, ay: accel.y, az: accel.z, steps});
+      }, 1000/LOG_HZ);
+    }
+    function stopLogging(){ if (!logging) return; logging = false; ui.logStatus.textContent = 'stopped'; clearInterval(logTimer); }
+
+    function exportCSV(){
+      if (logData.length === 0) { alert('No data to export. Hit Start first.'); return; }
+      const header = 't,alpha,beta,gamma,ax,ay,az,steps';
+      const rows = logData.map(r => [r.t.toFixed(3), r.alpha.toFixed(3), r.beta.toFixed(3), r.gamma.toFixed(3), r.ax.toFixed(5), r.ay.toFixed(5), r.az.toFixed(5), r.steps].join(','));
+      const blob = new Blob([header+'\\n'+rows.join('\\n')], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'imu_log.csv'; a.click(); URL.revokeObjectURL(url);
+    }
+
+    document.getElementById('btnPermission').addEventListener('click', requestPermission);
+    document.getElementById('btnCalibrate').addEventListener('click', calibrate);
+    document.getElementById('btnReset').addEventListener('click', resetAll);
+    document.getElementById('btnStartLog').addEventListener('click', startLogging);
+    document.getElementById('btnStopLog').addEventListener('click', stopLogging);
+    document.getElementById('btnExport').addEventListener('click', exportCSV);
+
+    function animate(){
+      requestAnimationFrame(animate);
+      applyOrientationToObject(phone);
+      updateUI();
+      renderer.render(scene, camera);
+    }
+    animate();
+  </script>
+</body>
+</html>
